@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # KOZA - Anonymous Peer-to-Peer Therapy & Support Network
 
 ![Koza Badge](https://img.shields.io/badge/Koza-Anonymous%20Support-blue)
@@ -357,3 +358,7 @@ Built on the shoulders of giants:
 **Koza**: Because sometimes you just need to speak freely.
 
 *Made with ❤️ for mental wellness.*
+=======
+# koza
+Anonymous peer-to-peer therapy and support network with real-time voice masking,  semantic matching, and automatic data destruction. Built with React, WebRTC,  PostgreSQL (pgvector), and Web Audio API.
+>>>>>>> c5fe0f0094fe0c51a36b78fae51cdedb1d53d087
