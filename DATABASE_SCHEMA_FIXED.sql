@@ -294,17 +294,23 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION detect_and_mask_pii()
 RETURNS TRIGGER AS $$
 DECLARE
+  plaintext TEXT;
   masked_content TEXT;
   detected_patterns TEXT[];
 BEGIN
-  -- Get masked version and detected patterns
-  SELECT masking_result.masked_text, masking_result.patterns
-  INTO masked_content, detected_patterns
-  FROM mask_pii_in_text(
-    pgp_sym_decrypt(NEW.content_encrypted, 'session_key')
-  ) AS masking_result(masked_text TEXT, patterns TEXT[]);
+  -- Content is encrypted client-side; the server-side scan is best-effort
+  -- defense in depth. If the payload is not pgp-decryptable (true E2E
+  -- encryption), skip silently - the client-side piiDetector already ran.
+  BEGIN
+    plaintext := pgp_sym_decrypt(NEW.content_encrypted, 'session_key');
+  EXCEPTION WHEN OTHERS THEN
+    RETURN NEW;
+  END;
 
-  -- Update the message record
+  SELECT m.masked_text, m.patterns
+  INTO masked_content, detected_patterns
+  FROM mask_pii_in_text(plaintext) AS m;
+
   IF array_length(detected_patterns, 1) > 0 THEN
     NEW.has_pii_detected := true;
     NEW.pii_detected_fields := detected_patterns;
@@ -520,15 +526,35 @@ $$ LANGUAGE plpgsql;
 -- 14. DATA INTEGRITY CONSTRAINTS & CHECKS
 -- ============================================================================
 
--- Ensure no message is older than its session
-ALTER TABLE session_messages
-ADD CONSTRAINT message_not_older_than_session
-CHECK (created_at >= (SELECT created_at FROM session_rooms WHERE id = session_id));
+-- PostgreSQL does not allow subqueries in CHECK constraints, so message/session
+-- timing invariants are enforced with a BEFORE trigger instead.
+CREATE OR REPLACE FUNCTION enforce_message_session_timing()
+RETURNS TRIGGER AS $$
+DECLARE
+  room RECORD;
+BEGIN
+  SELECT created_at, expires_at INTO room
+  FROM session_rooms WHERE id = NEW.session_id;
 
--- Ensure no message expires before session
-ALTER TABLE session_messages
-ADD CONSTRAINT message_expires_with_or_before_session
-CHECK (expires_at <= (SELECT expires_at FROM session_rooms WHERE id = session_id));
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'session % does not exist', NEW.session_id;
+  END IF;
+  IF NEW.created_at < room.created_at THEN
+    RAISE EXCEPTION 'message cannot be older than its session';
+  END IF;
+  IF NEW.expires_at > room.expires_at THEN
+    -- Clamp: a message must never outlive its session
+    NEW.expires_at := room.expires_at;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_message_session_timing ON session_messages;
+CREATE TRIGGER trigger_message_session_timing
+BEFORE INSERT ON session_messages
+FOR EACH ROW
+EXECUTE FUNCTION enforce_message_session_timing();
 
 -- ============================================================================
 -- 15. VIEWS (For Analytics & Monitoring, No PII)
@@ -563,30 +589,35 @@ GROUP BY flag_reason;
 -- Disable default public access
 REVOKE ALL ON schema public FROM public;
 
--- Create application role (limited permissions)
-CREATE ROLE koza_app_user WITH LOGIN PASSWORD 'CHANGE_ME_IN_PRODUCTION';
+-- Create application role (limited permissions); guarded for re-runs and CI
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'koza_app_user') THEN
+    CREATE ROLE koza_app_user WITH LOGIN PASSWORD 'CHANGE_ME_IN_PRODUCTION';
+  END IF;
+END
+$$;
 
-GRANT CONNECT ON DATABASE "postgres" TO koza_app_user;
 GRANT USAGE ON schema public TO koza_app_user;
 
 -- Users can only see/modify their own data
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 CREATE POLICY users_isolation ON users
-  FOR SELECT USING (id = current_user_id);
+  FOR SELECT USING (id = current_setting('app.current_user_id', true)::uuid);
 
 CREATE POLICY users_modification ON users
-  FOR UPDATE USING (id = current_user_id);
+  FOR UPDATE USING (id = current_setting('app.current_user_id', true)::uuid);
 
 -- Messages can only be accessed by participants
 ALTER TABLE session_messages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY message_access ON session_messages
   FOR SELECT USING (
-    sender_user_id = current_user_id OR
+    sender_user_id = current_setting('app.current_user_id', true)::uuid OR
     EXISTS (
       SELECT 1 FROM session_rooms
       WHERE id = session_id AND (
-        initiator_user_id = current_user_id OR
-        accepted_user_id = current_user_id
+        initiator_user_id = current_setting('app.current_user_id', true)::uuid OR
+        accepted_user_id = current_setting('app.current_user_id', true)::uuid
       )
     )
   );

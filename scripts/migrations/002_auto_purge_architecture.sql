@@ -186,12 +186,28 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 7. LEAST PRIVILEGE: only service_role may invoke purge RPCs
 -- ----------------------------------------------------------------------------
-REVOKE EXECUTE ON FUNCTION purge_session(UUID)          FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION auto_purge_session()         FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION auto_delete_expired_messages() FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION verify_purge_integrity()     FROM PUBLIC, anon, authenticated;
-GRANT  EXECUTE ON FUNCTION purge_session(UUID),
-                          auto_purge_session(),
-                          auto_delete_expired_messages(),
-                          verify_purge_integrity()
-TO service_role;
+REVOKE EXECUTE ON FUNCTION purge_session(UUID)            FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION auto_purge_session()           FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION auto_delete_expired_messages() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION verify_purge_integrity()       FROM PUBLIC;
+
+-- Supabase roles exist only on Supabase; guard for vanilla PostgreSQL (CI)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE EXECUTE ON FUNCTION purge_session(UUID),
+                               auto_purge_session(),
+                               auto_delete_expired_messages(),
+                               verify_purge_integrity()
+    FROM anon, authenticated;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION purge_session(UUID),
+                              auto_purge_session(),
+                              auto_delete_expired_messages(),
+                              verify_purge_integrity()
+    TO service_role;
+  END IF;
+END
+$$;
