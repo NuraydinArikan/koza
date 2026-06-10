@@ -123,7 +123,7 @@ export class SemanticMatcher {
         this.supabase
           .from('users')
           .select('answer_embedding')
-          .eq('id', userId) as Promise<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>,
+          .eq('id', userId) as unknown as Promise<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>,
         this.timeoutMs
       );
       ({ data, error } = response);
@@ -166,7 +166,7 @@ export class SemanticMatcher {
           exclude_user_id:  excludeUserId,
           match_count:      this.matchCount,
           min_similarity:   this.minSimilarity,
-        }) as Promise<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>,
+        }) as unknown as Promise<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>,
         this.timeoutMs
       );
       ({ data, error } = response);

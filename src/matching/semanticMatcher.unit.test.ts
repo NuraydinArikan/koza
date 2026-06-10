@@ -10,13 +10,6 @@ import {
 
 // ─── test helpers ─────────────────────────────────────────────────────────────
 
-/** Zero-filled embedding with specific indices set. */
-function emb(overrides: Record<number, number> = {}): number[] {
-  const v = new Array<number>(EMBEDDING_DIM).fill(0);
-  for (const [i, val] of Object.entries(overrides)) v[Number(i)] = val;
-  return v;
-}
-
 /** Valid 1536-dim embedding where every element equals `fill`. */
 const validEmb = (fill = 0.5) => new Array<number>(EMBEDDING_DIM).fill(fill);
 
@@ -223,7 +216,6 @@ describe('SemanticMatcher.findMatches – empty results', () => {
   });
 
   it('returns [] when RPC data is null', async () => {
-    const matcher = makeMatcher({ userEmbedding: validEmb() }); // rpcRows defaults to []
     const sb = mockSupabase({
       userEmbedding: validEmb(),
       rpcRows: undefined,

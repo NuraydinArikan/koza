@@ -66,6 +66,11 @@ export class VoiceMasker {
   private hopSize: number;
   private isActive: boolean = false;
 
+  /** True while the masking graph is running. */
+  get active(): boolean {
+    return this.isActive;
+  }
+
   // Smoothed pitch jitter state (AR(1) random walk)
   private currentPitchJitter: number = 0;
   private readonly pitchSmoothAlpha: number = 0.15;
