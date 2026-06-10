@@ -17,6 +17,13 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
+-- 0. The base schema defines these with RETURNS void; the new versions return
+--    counts. CREATE OR REPLACE cannot change a return type, so drop first.
+-- ----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS auto_delete_expired_messages();
+DROP FUNCTION IF EXISTS auto_purge_session();
+
+-- ----------------------------------------------------------------------------
 -- 1. FIX: log expired messages BEFORE deleting them
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION auto_delete_expired_messages()
