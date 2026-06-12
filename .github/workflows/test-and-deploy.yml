@@ -104,8 +104,8 @@ jobs:
           -- Active session (expires_at is GENERATED - never insert it directly)
           INSERT INTO session_rooms (initiator_user_id, accepted_user_id, room_type, duration_minutes)
           SELECT u1.id, u2.id, 'blind_confessional', 60
-          FROM (SELECT id FROM users ORDER BY created_at LIMIT 1) u1,
-               (SELECT id FROM users ORDER BY created_at DESC LIMIT 1) u2;
+          FROM (SELECT id FROM users ORDER BY anon_hash ASC  LIMIT 1) u1,
+               (SELECT id FROM users ORDER BY anon_hash DESC LIMIT 1) u2;
 
           -- Message encrypted with the trigger's symmetric key -> PII scan runs
           INSERT INTO session_messages (session_id, sender_user_id, content_encrypted, expires_at)
@@ -133,8 +133,8 @@ jobs:
           -- Expired session: backdate created_at, expires_at derives from it
           INSERT INTO session_rooms (initiator_user_id, accepted_user_id, room_type, duration_minutes, created_at)
           SELECT u1.id, u2.id, 'blind_confessional', 1, now() - INTERVAL '10 minutes'
-          FROM (SELECT id FROM users ORDER BY created_at LIMIT 1) u1,
-               (SELECT id FROM users ORDER BY created_at DESC LIMIT 1) u2;
+          FROM (SELECT id FROM users ORDER BY anon_hash ASC  LIMIT 1) u1,
+               (SELECT id FROM users ORDER BY anon_hash DESC LIMIT 1) u2;
 
           SELECT auto_purge_session();
 
