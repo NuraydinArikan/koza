@@ -9,7 +9,14 @@ type Status = 'idle' | 'requesting' | 'active' | 'error';
 
 type VoiceMetrics = ReturnType<VoiceMasker['getMetrics']>;
 
-export function VoiceControl() {
+export interface VoiceControlProps {
+  /** Called with the masked (never raw) audio once masking is active - e.g. to feed a peer connection. */
+  onStreamReady?: (stream: MediaStream) => void;
+  /** Called when masking stops, for any reason (user action, error, unmount). */
+  onStreamEnded?: () => void;
+}
+
+export function VoiceControl({ onStreamReady, onStreamEnded }: VoiceControlProps = {}) {
   const voicePreset = useUserPrefsStore((s) => s.voicePreset);
   const setVoicePreset = useUserPrefsStore((s) => s.setVoicePreset);
 
@@ -27,6 +34,7 @@ export function VoiceControl() {
       clearInterval(metricsIntervalRef.current);
       metricsIntervalRef.current = null;
     }
+    const wasActive = maskerRef.current !== null;
     maskerRef.current?.stop();
     maskerRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -34,6 +42,7 @@ export function VoiceControl() {
     audioContextRef.current?.close();
     audioContextRef.current = null;
     setMetrics(null);
+    if (wasActive) onStreamEnded?.();
   }
 
   useEffect(() => teardown, []);
@@ -59,6 +68,7 @@ export function VoiceControl() {
       }, METRICS_POLL_MS);
 
       setStatus('active');
+      onStreamReady?.(masker.getOutputStream());
     } catch (err) {
       teardown();
       setError(err instanceof Error ? err.message : 'Microphone access failed');

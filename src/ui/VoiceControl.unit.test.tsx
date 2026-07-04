@@ -17,6 +17,7 @@ class MockAudioContext {
     disconnect: vi.fn(),
     onaudioprocess: null,
   });
+  createMediaStreamDestination = vi.fn().mockReturnValue({ stream: { id: 'masked-stream' } });
 }
 
 function fakeStream() {
@@ -86,5 +87,30 @@ describe('VoiceControl', () => {
     render(<VoiceControl />);
     fireEvent.click(screen.getByRole('radio', { name: 'velvet_echo' }));
     expect(useUserPrefsStore.getState().voicePreset).toBe('velvet_echo');
+  });
+
+  it('calls onStreamReady with the masked output stream once active', async () => {
+    const onStreamReady = vi.fn();
+    render(<VoiceControl onStreamReady={onStreamReady} />);
+    fireEvent.click(screen.getByRole('button', { name: /start voice masking/i }));
+
+    await waitFor(() => expect(onStreamReady).toHaveBeenCalledWith({ id: 'masked-stream' }));
+  });
+
+  it('calls onStreamEnded when stopped', async () => {
+    const onStreamEnded = vi.fn();
+    render(<VoiceControl onStreamEnded={onStreamEnded} />);
+    fireEvent.click(screen.getByRole('button', { name: /start voice masking/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^stop$/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: /^stop$/i }));
+    expect(onStreamEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onStreamEnded on unmount if masking was never started', () => {
+    const onStreamEnded = vi.fn();
+    const { unmount } = render(<VoiceControl onStreamEnded={onStreamEnded} />);
+    unmount();
+    expect(onStreamEnded).not.toHaveBeenCalled();
   });
 });
