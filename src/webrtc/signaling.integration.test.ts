@@ -780,3 +780,25 @@ describe('data channel', () => {
     handler.destroy();
   });
 });
+
+// ─── remote media stream ───────────────────────────────────────────────────
+
+describe('remote media stream', () => {
+  it('forwards the underlying peer\'s "stream" event as "stream"', async () => {
+    const PC = makeMockPeerClass(['autoConnect']);
+    const handler = makeHandler({ initiator: true }, PC);
+
+    handler.start();
+    await waitFor(handler, 'connect', 300);
+
+    const received: MediaStream[] = [];
+    handler.on('stream', (s) => received.push(s as MediaStream));
+
+    const peer = (handler as unknown as Record<string, unknown>)['peer'] as MockPeer;
+    const fakeStream = { id: 'remote-stream' } as unknown as MediaStream;
+    peer.emit('stream', fakeStream);
+
+    expect(received).toEqual([fakeStream]);
+    handler.destroy();
+  });
+});

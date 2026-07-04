@@ -15,6 +15,9 @@ function mockAudioContext(sampleRate = 44100): AudioContext {
       disconnect: vi.fn(),
       onaudioprocess: null,
     }),
+    createMediaStreamDestination: vi.fn().mockReturnValue({
+      stream: { id: 'mock-stream' },
+    }),
     destination: {},
   } as unknown as AudioContext;
 }
@@ -516,6 +519,48 @@ describe('stop / cleanup', () => {
     expect(fakeProcessor.disconnect).toHaveBeenCalled();
     expect((masker as any).sourceNode).toBeNull();
     expect((masker as any).processorNode).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getOutputStream', () => {
+  it('connects the processor to a MediaStreamAudioDestinationNode and returns its stream', async () => {
+    const ctx = mockAudioContext();
+    const masker = new VoiceMasker(ctx, VOICE_PRESETS.warm_hearth, 256);
+    await masker.initializeProcessor({ getTracks: () => [] } as unknown as MediaStream);
+
+    const stream = masker.getOutputStream();
+
+    expect(ctx.createMediaStreamDestination).toHaveBeenCalledTimes(1);
+    expect((masker as any).processorNode.connect).toHaveBeenCalledWith(
+      (ctx.createMediaStreamDestination as any).mock.results[0].value
+    );
+    expect(stream).toEqual({ id: 'mock-stream' });
+  });
+
+  it('is idempotent: repeated calls do not recreate the destination node', async () => {
+    const ctx = mockAudioContext();
+    const masker = new VoiceMasker(ctx, VOICE_PRESETS.warm_hearth, 256);
+    await masker.initializeProcessor({ getTracks: () => [] } as unknown as MediaStream);
+
+    const first = masker.getOutputStream();
+    const second = masker.getOutputStream();
+
+    expect(ctx.createMediaStreamDestination).toHaveBeenCalledTimes(1);
+    expect(first).toBe(second);
+  });
+
+  it('clears the cached destination node on stop', async () => {
+    const ctx = mockAudioContext();
+    const masker = new VoiceMasker(ctx, VOICE_PRESETS.warm_hearth, 256);
+    await masker.initializeProcessor({ getTracks: () => [] } as unknown as MediaStream);
+    masker.getOutputStream();
+
+    masker.stop();
+    masker.getOutputStream();
+
+    expect(ctx.createMediaStreamDestination).toHaveBeenCalledTimes(2);
   });
 });
 

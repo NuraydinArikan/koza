@@ -272,6 +272,10 @@ export class SignalingHandler extends Emitter {
       this._startPingInterval();
     });
 
+    this.peer.on('stream', (stream: unknown) => {
+      this.fire('stream', stream as MediaStream);
+    });
+
     this.peer.on('data', (raw: unknown) => {
       const data = raw instanceof Buffer ? raw.toString() : String(raw);
       try {

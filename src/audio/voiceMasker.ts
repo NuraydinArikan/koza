@@ -51,6 +51,7 @@ export class VoiceMasker {
   private audioContext: AudioContext;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private processorNode: AudioWorkletNode | ScriptProcessorNode | null = null;
+  private streamDestination: MediaStreamAudioDestinationNode | null = null;
   private currentPreset: VoicePreset;
 
   private hannWindow: Float32Array;
@@ -395,11 +396,26 @@ export class VoiceMasker {
     return Object.keys(VOICE_PRESETS);
   }
 
+  /**
+   * Exposes the masked audio as a MediaStream, e.g. to hand to
+   * RTCPeerConnection for a call - the peer receives only the masked
+   * voice, never the raw mic input. Call after initializeProcessor().
+   * Idempotent: repeated calls return the same stream.
+   */
+  getOutputStream(): MediaStream {
+    if (!this.streamDestination) {
+      this.streamDestination = this.audioContext.createMediaStreamDestination();
+      this.processorNode?.connect(this.streamDestination);
+    }
+    return this.streamDestination.stream;
+  }
+
   stop(): void {
     this.sourceNode?.disconnect();
     this.sourceNode = null;
     this.processorNode?.disconnect();
     this.processorNode = null;
+    this.streamDestination = null;
     this.isActive = false;
   }
 
