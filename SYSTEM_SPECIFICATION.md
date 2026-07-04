@@ -1,5 +1,5 @@
 # KOZA SYSTEM ARCHITECTURE SPECIFICATION
-**Anonymous Peer-to-Peer Therapy & Support Network**
+**Anonymous Peer-to-Peer Support Network**
 
 **Version:** 1.0  
 **Status:** Active Development  

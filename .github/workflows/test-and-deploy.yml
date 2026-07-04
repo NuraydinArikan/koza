@@ -79,7 +79,7 @@ jobs:
         env:
           PGPASSWORD: test_pass
         run: |
-          psql -v ON_ERROR_STOP=1 -h localhost -U test_user -d koza_test -f DATABASE_SCHEMA_FIXED.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U test_user -d koza_test -f DATABASE_SCHEMA.sql
 
       - name: Apply migrations
         env:

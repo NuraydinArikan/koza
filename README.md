@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-# KOZA - Anonymous Peer-to-Peer Therapy & Support Network
+# KOZA - Anonymous Peer-to-Peer Support Network
 
 ![Koza Badge](https://img.shields.io/badge/Koza-Anonymous%20Support-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
@@ -7,7 +6,7 @@
 
 **Making mental health support accessible, safe, and truly anonymous.**
 
-Koza is a peer-to-peer support platform designed with **absolute anonymity and privacy** as the foundation. Unlike traditional therapy apps or dating platforms, Koza:
+Koza is a peer-to-peer support platform designed with **absolute anonymity and privacy** as the foundation. Unlike traditional counseling apps or dating platforms, Koza:
 
 - 🎭 **Masks your voice and appearance** in real-time using formant shifting and 3D avatars
 - 🔐 **Encrypts everything** - server never sees your real identity or conversation content
@@ -358,7 +357,3 @@ Built on the shoulders of giants:
 **Koza**: Because sometimes you just need to speak freely.
 
 *Made with ❤️ for mental wellness.*
-=======
-# koza
-Anonymous peer-to-peer therapy and support network with real-time voice masking,  semantic matching, and automatic data destruction. Built with React, WebRTC,  PostgreSQL (pgvector), and Web Audio API.
->>>>>>> c5fe0f0094fe0c51a36b78fae51cdedb1d53d087

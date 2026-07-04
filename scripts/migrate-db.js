@@ -12,7 +12,7 @@ dotenv.config({ path: '.env.local' });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { Client } = pg;
 
-const schemaFile = process.argv[2] || path.join(__dirname, '..', 'DATABASE_SCHEMA_FIXED.sql');
+const schemaFile = process.argv[2] || path.join(__dirname, '..', 'DATABASE_SCHEMA.sql');
 
 if (!process.env.DATABASE_URL) {
   console.error('ERROR: DATABASE_URL not set in .env.local');
@@ -59,5 +59,5 @@ for (const config of connectionConfigs) {
 }
 
 console.error('\nAll connection attempts failed.');
-console.error('Deploy manually: open Supabase Dashboard → SQL Editor → paste DATABASE_SCHEMA_FIXED.sql');
+console.error('Deploy manually: open Supabase Dashboard → SQL Editor → paste DATABASE_SCHEMA.sql');
 process.exit(1);
