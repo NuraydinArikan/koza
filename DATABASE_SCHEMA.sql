@@ -583,44 +583,27 @@ WHERE created_at >= now() - INTERVAL '7 days'
 GROUP BY flag_reason;
 
 -- ============================================================================
--- 16. GRANTS & SECURITY POLICIES (Row Level Security)
+-- 16. ROW LEVEL SECURITY (RPC-only access - see migration 004)
 -- ============================================================================
+-- Koza uses device-hash-only identity (api/auth.ts), not Supabase Auth, so
+-- there is no session to key a row policy off (current_setting(
+-- 'app.current_user_id') is never populated by anon/authenticated
+-- requests). Enable RLS on every table with *no* policies: this denies all
+-- direct REST table access by default. The only sanctioned access path is
+-- the set of SECURITY DEFINER RPCs added in scripts/migrations/004_rpc_access_layer.sql
+-- (find_user_by_anon_hash, register_user, create_room, accept_room,
+-- get_room, get_active_room_for_user, end_room, send_message,
+-- fetch_messages) plus find_similar_users (migration 003) - each validates
+-- and shapes its own inputs instead of relying on a row policy.
 
--- Disable default public access
-REVOKE ALL ON schema public FROM public;
-
--- Create application role (limited permissions); guarded for re-runs and CI
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'koza_app_user') THEN
-    CREATE ROLE koza_app_user WITH LOGIN PASSWORD 'CHANGE_ME_IN_PRODUCTION';
-  END IF;
-END
-$$;
-
-GRANT USAGE ON schema public TO koza_app_user;
-
--- Users can only see/modify their own data
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-CREATE POLICY users_isolation ON users
-  FOR SELECT USING (id = current_setting('app.current_user_id', true)::uuid);
-
-CREATE POLICY users_modification ON users
-  FOR UPDATE USING (id = current_setting('app.current_user_id', true)::uuid);
-
--- Messages can only be accessed by participants
+ALTER TABLE topics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE session_rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE session_messages ENABLE ROW LEVEL SECURITY;
-CREATE POLICY message_access ON session_messages
-  FOR SELECT USING (
-    sender_user_id = current_setting('app.current_user_id', true)::uuid OR
-    EXISTS (
-      SELECT 1 FROM session_rooms
-      WHERE id = session_id AND (
-        initiator_user_id = current_setting('app.current_user_id', true)::uuid OR
-        accepted_user_id = current_setting('app.current_user_id', true)::uuid
-      )
-    )
-  );
+ALTER TABLE anonymization_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE moderation_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE connection_heartbeat ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_deletion_requests ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- 17. INITIALIZATION QUERIES
