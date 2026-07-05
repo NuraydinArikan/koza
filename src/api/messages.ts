@@ -1,17 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isValidSessionId } from '../purge/sessionPurger';
-import { toBytea, fromBytea } from '../lib/bytea';
+import { bytesToHex, hexToBytes } from '../lib/bytea';
 
 /**
- * Pure persistence layer for session_messages. Deliberately never sees
- * plaintext: callers must encrypt client-side before calling sendMessage()
- * and decrypt after fetchMessages(). That encryption step (real
- * per-session AES-256-GCM key material, not yet implemented anywhere in
- * this codebase) is a separate concern - see the "message encryption key
- * derivation" follow-up task.
+ * Pure persistence layer for session_messages, via RPC (send_message,
+ * fetch_messages - migration 004; see api/auth.ts for why direct table
+ * access doesn't work here). Deliberately never sees plaintext: callers
+ * must encrypt client-side before calling sendMessage() and decrypt after
+ * fetchMessages() - see crypto/messageEncryption.ts.
  */
 
-export type SupabaseLike = Pick<SupabaseClient, 'from'>;
+export type SupabaseLike = Pick<SupabaseClient, 'rpc'>;
 
 export type MessageErrorCode = 'API_ERROR' | 'INVALID_ID';
 
@@ -36,21 +35,18 @@ interface MessageRow {
   id: string;
   session_id: string;
   sender_user_id: string;
-  content_encrypted: string; // "\x..." hex, per PostgREST bytea representation
+  content_encrypted_hex: string; // plain hex (no "\x" prefix) - see migration 004
   has_pii_detected: boolean;
   pii_detected_fields: string[] | null;
   created_at: string;
 }
-
-const MESSAGE_COLUMNS =
-  'id, session_id, sender_user_id, content_encrypted, has_pii_detected, pii_detected_fields, created_at';
 
 function toMessage(row: MessageRow): MessageRecord {
   return {
     id: row.id,
     sessionId: row.session_id,
     senderUserId: row.sender_user_id,
-    contentEncrypted: fromBytea(row.content_encrypted),
+    contentEncrypted: hexToBytes(row.content_encrypted_hex),
     hasPiiDetected: row.has_pii_detected,
     piiDetectedFields: row.pii_detected_fields ?? [],
     createdAt: row.created_at,
@@ -82,19 +78,17 @@ export async function sendMessage(params: SendMessageParams): Promise<MessageRec
   requireUuid(sessionId, 'sessionId');
   requireUuid(senderUserId, 'senderUserId');
 
-  const { data, error } = await supabase
-    .from('session_messages')
-    .insert({
-      session_id: sessionId,
-      sender_user_id: senderUserId,
-      content_encrypted: toBytea(contentEncrypted),
-      expires_at: expiresAt,
-    })
-    .select(MESSAGE_COLUMNS)
-    .single();
+  const { data, error } = await supabase.rpc('send_message', {
+    p_session_id: sessionId,
+    p_sender_user_id: senderUserId,
+    p_content_encrypted_hex: bytesToHex(contentEncrypted),
+    p_expires_at: expiresAt,
+  });
 
   if (error) throw new MessageError(`Failed to send message: ${error.message}`, 'API_ERROR');
-  return toMessage(data as MessageRow);
+  const rows = (data ?? []) as MessageRow[];
+  if (rows.length === 0) throw new MessageError('send_message returned no row', 'API_ERROR');
+  return toMessage(rows[0]);
 }
 
 export async function fetchMessages(
@@ -103,12 +97,8 @@ export async function fetchMessages(
 ): Promise<MessageRecord[]> {
   requireUuid(sessionId, 'sessionId');
 
-  const { data, error } = await supabase
-    .from('session_messages')
-    .select(MESSAGE_COLUMNS)
-    .eq('session_id', sessionId)
-    .order('created_at', { ascending: true });
+  const { data, error } = await supabase.rpc('fetch_messages', { p_session_id: sessionId });
 
   if (error) throw new MessageError(`Failed to fetch messages: ${error.message}`, 'API_ERROR');
-  return (data as MessageRow[]).map(toMessage);
+  return ((data ?? []) as MessageRow[]).map(toMessage);
 }

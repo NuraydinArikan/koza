@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { toBytea } from '../lib/bytea';
 
 /**
  * Device-hash-only identity (per user decision: no SMS OTP). A random secret
@@ -8,12 +7,19 @@ import { toBytea } from '../lib/bytea';
  * doubles as a recovery code: whoever holds it can restore the same identity
  * on another device/browser, and losing it means losing the identity with
  * no other recovery path (consistent with "no PII, nothing to recover from").
+ *
+ * All server access goes through RPCs (find_user_by_anon_hash, register_user
+ * - migration 004), not direct table access: the RLS policies in
+ * DATABASE_SCHEMA.sql key off a Supabase-Auth-only session setting that a
+ * device-hash identity never populates, so direct `.from('users')` calls
+ * from the anon/publishable key are always denied by design. The RPCs are
+ * SECURITY DEFINER and validate/shape their own inputs instead.
  */
 
 const SECRET_STORAGE_KEY = 'koza_device_secret';
 const SECRET_HEX_RE = /^[0-9a-f]{64}$/i;
 
-export type SupabaseLike = Pick<SupabaseClient, 'from'>;
+export type SupabaseLike = Pick<SupabaseClient, 'rpc'>;
 
 export type AuthErrorCode = 'API_ERROR' | 'INVALID_SECRET' | 'NOT_ONBOARDED';
 
@@ -44,8 +50,6 @@ interface UserRow {
   voice_preset: string | null;
   avatar_style: string | null;
 }
-
-const USER_COLUMNS = 'id, anon_hash, voice_preset, avatar_style';
 
 function toUserRecord(row: UserRow): UserRecord {
   return {
@@ -109,14 +113,13 @@ export async function findUserByAnonHash(
   if (!SECRET_HEX_RE.test(anonHash)) {
     throw new AuthError('anonHash must be a 64-character hex SHA-256 digest', 'INVALID_SECRET');
   }
-  const { data, error } = await supabase
-    .from('users')
-    .select(USER_COLUMNS)
-    .eq('anon_hash', toBytea(anonHash))
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('find_user_by_anon_hash', {
+    p_anon_hash_hex: anonHash,
+  });
 
   if (error) throw new AuthError(`Failed to look up user: ${error.message}`, 'API_ERROR');
-  return data ? toUserRecord(data as UserRow) : null;
+  const rows = (data ?? []) as UserRow[];
+  return rows.length > 0 ? toUserRecord(rows[0]) : null;
 }
 
 export interface RegisterUserParams {
@@ -136,18 +139,18 @@ export interface RegisterUserParams {
 export async function registerUser(params: RegisterUserParams): Promise<UserRecord> {
   const { supabase, anonHash, onboardingAnswers, answerEmbedding, voicePreset, avatarStyle } = params;
 
-  const { data, error } = await supabase
-    .from('users')
-    .insert({
-      anon_hash: toBytea(anonHash),
-      onboarding_answers: onboardingAnswers,
-      answer_embedding: answerEmbedding,
-      voice_preset: voicePreset,
-      avatar_style: avatarStyle ?? null,
-    })
-    .select(USER_COLUMNS)
-    .single();
+  const { data, error } = await supabase.rpc('register_user', {
+    p_anon_hash_hex: anonHash,
+    p_onboarding_answers: onboardingAnswers,
+    p_answer_embedding: answerEmbedding,
+    p_voice_preset: voicePreset,
+    p_avatar_style: avatarStyle ?? null,
+  });
 
   if (error) throw new AuthError(`Failed to register user: ${error.message}`, 'API_ERROR');
-  return toUserRecord(data as UserRow);
+  const rows = (data ?? []) as UserRow[];
+  if (rows.length === 0) {
+    throw new AuthError('register_user returned no row', 'API_ERROR');
+  }
+  return toUserRecord(rows[0]);
 }

@@ -2,7 +2,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isValidSessionId } from '../purge/sessionPurger';
 import type { RoomType } from '../store/sessionStore';
 
-export type SupabaseLike = Pick<SupabaseClient, 'from'>;
+/**
+ * All access goes through RPCs (create_room, accept_room, get_room,
+ * get_active_room_for_user, end_room - migration 004), not direct table
+ * access: see api/auth.ts for why (RLS policies key off a session setting
+ * device-hash identity never populates).
+ */
+export type SupabaseLike = Pick<SupabaseClient, 'rpc'>;
 
 export type RoomStatus = 'waiting' | 'connecting' | 'connected' | 'ended' | 'purged';
 
@@ -37,9 +43,6 @@ interface RoomRow {
   expires_at: string;
 }
 
-const ROOM_COLUMNS =
-  'id, room_type, topic_id, initiator_user_id, accepted_user_id, status, created_at, expires_at';
-
 function toRoom(row: RoomRow): Room {
   return {
     id: row.id,
@@ -51,6 +54,11 @@ function toRoom(row: RoomRow): Room {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
   };
+}
+
+function firstRow(data: unknown): RoomRow | null {
+  const rows = (data ?? []) as RoomRow[];
+  return rows.length > 0 ? rows[0] : null;
 }
 
 function requireUuid(value: string, label: string): void {
@@ -72,19 +80,17 @@ export async function createRoom(params: CreateRoomParams): Promise<Room> {
   const { supabase, initiatorUserId, roomType, topicId, durationMinutes } = params;
   requireUuid(initiatorUserId, 'initiatorUserId');
 
-  const { data, error } = await supabase
-    .from('session_rooms')
-    .insert({
-      initiator_user_id: initiatorUserId,
-      room_type: roomType,
-      topic_id: topicId ?? null,
-      duration_minutes: durationMinutes ?? 60,
-    })
-    .select(ROOM_COLUMNS)
-    .single();
+  const { data, error } = await supabase.rpc('create_room', {
+    p_initiator_user_id: initiatorUserId,
+    p_room_type: roomType,
+    p_topic_id: topicId ?? null,
+    p_duration_minutes: durationMinutes ?? 60,
+  });
 
   if (error) throw new RoomError(`Failed to create room: ${error.message}`, 'API_ERROR');
-  return toRoom(data as RoomRow);
+  const row = firstRow(data);
+  if (!row) throw new RoomError('create_room returned no row', 'API_ERROR');
+  return toRoom(row);
 }
 
 export interface AcceptRoomParams {
@@ -99,30 +105,25 @@ export async function acceptRoom(params: AcceptRoomParams): Promise<Room> {
   requireUuid(roomId, 'roomId');
   requireUuid(acceptedUserId, 'acceptedUserId');
 
-  const { data, error } = await supabase
-    .from('session_rooms')
-    .update({ accepted_user_id: acceptedUserId, status: 'connecting' })
-    .eq('id', roomId)
-    .eq('status', 'waiting')
-    .select(ROOM_COLUMNS)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('accept_room', {
+    p_room_id: roomId,
+    p_accepted_user_id: acceptedUserId,
+  });
 
   if (error) throw new RoomError(`Failed to accept room: ${error.message}`, 'API_ERROR');
-  if (!data) throw new RoomError(`Room not found or no longer waiting: ${roomId}`, 'NOT_FOUND');
-  return toRoom(data as RoomRow);
+  const row = firstRow(data);
+  if (!row) throw new RoomError(`Room not found or no longer waiting: ${roomId}`, 'NOT_FOUND');
+  return toRoom(row);
 }
 
 export async function getRoom(supabase: SupabaseLike, roomId: string): Promise<Room | null> {
   requireUuid(roomId, 'roomId');
 
-  const { data, error } = await supabase
-    .from('session_rooms')
-    .select(ROOM_COLUMNS)
-    .eq('id', roomId)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('get_room', { p_room_id: roomId });
 
   if (error) throw new RoomError(`Failed to fetch room: ${error.message}`, 'API_ERROR');
-  return data ? toRoom(data as RoomRow) : null;
+  const row = firstRow(data);
+  return row ? toRoom(row) : null;
 }
 
 /** Most recent non-ended, non-purged room this user is initiator or acceptor of. */
@@ -132,17 +133,11 @@ export async function getActiveRoomForUser(
 ): Promise<Room | null> {
   requireUuid(userId, 'userId');
 
-  const { data, error } = await supabase
-    .from('session_rooms')
-    .select(ROOM_COLUMNS)
-    .or(`initiator_user_id.eq.${userId},accepted_user_id.eq.${userId}`)
-    .not('status', 'in', '("ended","purged")')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('get_active_room_for_user', { p_user_id: userId });
 
   if (error) throw new RoomError(`Failed to fetch active room: ${error.message}`, 'API_ERROR');
-  return data ? toRoom(data as RoomRow) : null;
+  const row = firstRow(data);
+  return row ? toRoom(row) : null;
 }
 
 /**
@@ -156,15 +151,10 @@ export async function endRoom(
 ): Promise<void> {
   requireUuid(roomId, 'roomId');
 
-  const { error } = await supabase
-    .from('session_rooms')
-    .update({
-      status: 'ended',
-      ...(actualDurationSeconds !== undefined
-        ? { actual_duration_seconds: actualDurationSeconds }
-        : {}),
-    })
-    .eq('id', roomId);
+  const { error } = await supabase.rpc('end_room', {
+    p_room_id: roomId,
+    p_actual_duration_seconds: actualDurationSeconds ?? null,
+  });
 
   if (error) throw new RoomError(`Failed to end room: ${error.message}`, 'API_ERROR');
 }

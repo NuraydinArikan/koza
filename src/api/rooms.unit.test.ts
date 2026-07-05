@@ -15,34 +15,10 @@ const UUID_A = '11111111-1111-1111-1111-111111111111';
 const UUID_B = '22222222-2222-2222-2222-222222222222';
 const ROOM_ID = '33333333-3333-3333-3333-333333333333';
 
-type QueryResult = { data: Record<string, unknown> | null; error: { message: string } | null };
+type RpcResult = { data: unknown; error: { message: string } | null };
 
-/** Every chain method returns itself; it's also thenable so awaiting without
- * a terminal single()/maybeSingle() call (as endRoom/fetchMessages do) works. */
-function chain(result: QueryResult) {
-  const obj: Record<string, unknown> = {
-    eq: () => obj,
-    or: () => obj,
-    not: () => obj,
-    order: () => obj,
-    limit: () => obj,
-    select: () => obj,
-    single: () => Promise.resolve(result),
-    maybeSingle: () => Promise.resolve(result),
-    then: (resolve: (v: QueryResult) => void, reject?: (e: unknown) => void) =>
-      Promise.resolve(result).then(resolve, reject),
-  };
-  return obj;
-}
-
-function mockSupabase(result: QueryResult): SupabaseLike {
-  return {
-    from: () => ({
-      insert: () => chain(result),
-      update: () => chain(result),
-      select: () => chain(result),
-    }),
-  } as unknown as SupabaseLike;
+function mockSupabase(result: RpcResult): SupabaseLike {
+  return { rpc: () => Promise.resolve(result) } as unknown as SupabaseLike;
 }
 
 const roomRow = {
@@ -72,7 +48,7 @@ const expectedRoom = {
 describe('createRoom', () => {
   it('creates a room and maps the row', async () => {
     const room = await createRoom({
-      supabase: mockSupabase({ data: roomRow, error: null }),
+      supabase: mockSupabase({ data: [roomRow], error: null }),
       initiatorUserId: UUID_A,
       roomType: 'blind_confessional',
     });
@@ -82,7 +58,7 @@ describe('createRoom', () => {
   it('rejects a non-UUID initiatorUserId before hitting the network', async () => {
     await expect(
       createRoom({
-        supabase: mockSupabase({ data: roomRow, error: null }),
+        supabase: mockSupabase({ data: [roomRow], error: null }),
         initiatorUserId: 'not-a-uuid',
         roomType: 'blind_confessional',
       })
@@ -106,7 +82,7 @@ describe('acceptRoom', () => {
   it('accepts a waiting room', async () => {
     const acceptedRow = { ...roomRow, accepted_user_id: UUID_B, status: 'connecting' };
     const room = await acceptRoom({
-      supabase: mockSupabase({ data: acceptedRow, error: null }),
+      supabase: mockSupabase({ data: [acceptedRow], error: null }),
       roomId: ROOM_ID,
       acceptedUserId: UUID_B,
     });
@@ -117,7 +93,7 @@ describe('acceptRoom', () => {
   it('throws NOT_FOUND when the room is no longer waiting', async () => {
     await expect(
       acceptRoom({
-        supabase: mockSupabase({ data: null, error: null }),
+        supabase: mockSupabase({ data: [], error: null }),
         roomId: ROOM_ID,
         acceptedUserId: UUID_B,
       })
@@ -129,24 +105,24 @@ describe('acceptRoom', () => {
 
 describe('getRoom', () => {
   it('returns null when no room matches', async () => {
-    const room = await getRoom(mockSupabase({ data: null, error: null }), ROOM_ID);
+    const room = await getRoom(mockSupabase({ data: [], error: null }), ROOM_ID);
     expect(room).toBeNull();
   });
 
   it('returns the mapped room when found', async () => {
-    const room = await getRoom(mockSupabase({ data: roomRow, error: null }), ROOM_ID);
+    const room = await getRoom(mockSupabase({ data: [roomRow], error: null }), ROOM_ID);
     expect(room).toEqual(expectedRoom);
   });
 });
 
 describe('getActiveRoomForUser', () => {
   it('returns the mapped room when an active one exists', async () => {
-    const room = await getActiveRoomForUser(mockSupabase({ data: roomRow, error: null }), UUID_A);
+    const room = await getActiveRoomForUser(mockSupabase({ data: [roomRow], error: null }), UUID_A);
     expect(room).toEqual(expectedRoom);
   });
 
   it('returns null when the user has no active room', async () => {
-    const room = await getActiveRoomForUser(mockSupabase({ data: null, error: null }), UUID_A);
+    const room = await getActiveRoomForUser(mockSupabase({ data: [], error: null }), UUID_A);
     expect(room).toBeNull();
   });
 });

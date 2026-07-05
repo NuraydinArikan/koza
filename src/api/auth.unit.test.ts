@@ -22,17 +22,15 @@ function fakeStorage(initial: Record<string, string> = {}): Pick<Storage, 'getIt
 }
 
 interface MockResult {
-  data: Record<string, unknown> | null;
+  /** Rows returned by the RPC (RETURNS TABLE always yields an array). */
+  rows?: Record<string, unknown>[];
   errorMsg?: string;
 }
 
-function mockSupabase({ data, errorMsg }: MockResult): SupabaseLike {
-  const result = errorMsg ? { data: null, error: { message: errorMsg } } : { data, error: null };
+function mockSupabase({ rows, errorMsg }: MockResult): SupabaseLike {
+  const result = errorMsg ? { data: null, error: { message: errorMsg } } : { data: rows ?? [], error: null };
   return {
-    from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve(result) }) }),
-      insert: () => ({ select: () => ({ single: () => Promise.resolve(result) }) }),
-    }),
+    rpc: () => Promise.resolve(result),
   } as unknown as SupabaseLike;
 }
 
@@ -91,14 +89,14 @@ describe('findUserByAnonHash', () => {
   const hash = 'c'.repeat(64);
 
   it('returns null when no user matches', async () => {
-    const result = await findUserByAnonHash(mockSupabase({ data: null }), hash);
+    const result = await findUserByAnonHash(mockSupabase({ rows: [] }), hash);
     expect(result).toBeNull();
   });
 
   it('maps a found row to a UserRecord', async () => {
     const result = await findUserByAnonHash(
       mockSupabase({
-        data: { id: 'u1', anon_hash: hash, voice_preset: 'warm_hearth', avatar_style: null },
+        rows: [{ id: 'u1', anon_hash: hash, voice_preset: 'warm_hearth', avatar_style: null }],
       }),
       hash
     );
@@ -111,14 +109,14 @@ describe('findUserByAnonHash', () => {
   });
 
   it('throws AuthError on a malformed hash', async () => {
-    await expect(findUserByAnonHash(mockSupabase({ data: null }), 'too-short')).rejects.toThrow(
+    await expect(findUserByAnonHash(mockSupabase({ rows: [] }), 'too-short')).rejects.toThrow(
       AuthError
     );
   });
 
   it('throws AuthError when the query fails', async () => {
     await expect(
-      findUserByAnonHash(mockSupabase({ data: null, errorMsg: 'connection reset' }), hash)
+      findUserByAnonHash(mockSupabase({ errorMsg: 'connection reset' }), hash)
     ).rejects.toThrow(AuthError);
   });
 });
@@ -129,7 +127,7 @@ describe('registerUser', () => {
   it('creates a user and returns the mapped record', async () => {
     const result = await registerUser({
       supabase: mockSupabase({
-        data: { id: 'u2', anon_hash: hash, voice_preset: 'gentle_breeze', avatar_style: 'origami' },
+        rows: [{ id: 'u2', anon_hash: hash, voice_preset: 'gentle_breeze', avatar_style: 'origami' }],
       }),
       anonHash: hash,
       onboardingAnswers: { q1: 'answer' },
@@ -148,7 +146,19 @@ describe('registerUser', () => {
   it('throws AuthError when the insert fails', async () => {
     await expect(
       registerUser({
-        supabase: mockSupabase({ data: null, errorMsg: 'unique violation' }),
+        supabase: mockSupabase({ errorMsg: 'unique violation' }),
+        anonHash: hash,
+        onboardingAnswers: {},
+        answerEmbedding: [],
+        voicePreset: 'warm_hearth',
+      })
+    ).rejects.toThrow(AuthError);
+  });
+
+  it('throws AuthError when the RPC returns no row', async () => {
+    await expect(
+      registerUser({
+        supabase: mockSupabase({ rows: [] }),
         anonHash: hash,
         onboardingAnswers: {},
         answerEmbedding: [],

@@ -1,8 +1,8 @@
 /**
- * PostgREST (and therefore supabase-js) represents Postgres `bytea` columns
- * as hex strings prefixed with "\x" on both read and write. These helpers
- * keep that encoding in one place instead of repeating it in every API
- * module that touches a bytea column (anon_hash, content_encrypted, ...).
+ * Hex <-> bytes conversion for Postgres `bytea` columns exposed through RPC
+ * parameters/results as plain hex text (encode/decode(..., 'hex') - see
+ * migration 004) rather than raw bytea, so the client never needs to deal
+ * with PostgREST's "\x..." bytea literal format at all.
  */
 
 const HEX_RE = /^[0-9a-f]*$/i;
@@ -20,16 +20,4 @@ export function hexToBytes(hex: string): Uint8Array {
     bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return bytes;
-}
-
-/** Encodes raw bytes (or an already-hex string) as a Postgres bytea literal ("\x..."). */
-export function toBytea(value: Uint8Array | string): string {
-  const hex = typeof value === 'string' ? value : bytesToHex(value);
-  return `\\x${hex}`;
-}
-
-/** Decodes a "\x..."-prefixed bytea value (as returned by PostgREST) back into raw bytes. */
-export function fromBytea(value: string): Uint8Array {
-  const hex = value.startsWith('\\x') ? value.slice(2) : value;
-  return hexToBytes(hex);
 }
