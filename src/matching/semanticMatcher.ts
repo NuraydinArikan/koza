@@ -92,16 +92,19 @@ export class SemanticMatcher {
    */
   async findMatches(userId: string): Promise<MatchResult[]> {
     const embedding = await this._fetchEmbedding(userId);
-    return this._queryMatches(embedding, userId);
+    return this._queryMatches(embedding);
   }
 
   /**
    * Finds top matches for a pre-computed embedding (e.g. from the onboarding flow
    * before the vector has been persisted).
+   *
+   * `_excludeUserId` is ignored: the caller is excluded server-side via auth.uid().
+   * Kept in the signature for source compatibility; drop it once callers migrate.
    */
   async findMatchesByEmbedding(
     embedding: number[],
-    excludeUserId: string
+    _excludeUserId?: string
   ): Promise<MatchResult[]> {
     if (!isValidEmbedding(embedding)) {
       throw new MatchingError(
@@ -109,7 +112,7 @@ export class SemanticMatcher {
         'INVALID_EMBEDDING'
       );
     }
-    return this._queryMatches(embedding, excludeUserId);
+    return this._queryMatches(embedding);
   }
 
   // ─── private ───────────────────────────────────────────────────────────────
@@ -152,10 +155,7 @@ export class SemanticMatcher {
     return raw;
   }
 
-  private async _queryMatches(
-    embedding: number[],
-    excludeUserId: string
-  ): Promise<MatchResult[]> {
+  private async _queryMatches(embedding: number[]): Promise<MatchResult[]> {
     let data: Record<string, unknown>[] | null;
     let error: { message: string } | null;
 
@@ -163,7 +163,6 @@ export class SemanticMatcher {
       const response = await this._withTimeout(
         this.supabase.rpc('find_similar_users', {
           query_embedding:  embedding,
-          exclude_user_id:  excludeUserId,
           match_count:      this.matchCount,
           min_similarity:   this.minSimilarity,
         }) as unknown as Promise<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>,

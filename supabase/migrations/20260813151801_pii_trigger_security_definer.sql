@@ -1,0 +1,13 @@
+-- detect_and_mask_pii, mask_pii_in_text'i çağırıyor ama SECURITY DEFINER
+-- değildi; trigger `authenticated` olarak çalışıyordu ve o role
+-- mask_pii_in_text üzerinde EXECUTE yetkisi verilmemiş. İçerik gerçekten
+-- 'session_key' ile çözülebildiği durumda çağrı permission denied alır ve
+-- her send_message patlardı.
+--
+-- (Trigger fonksiyonunun kendisi için EXECUTE gerekmiyor — Postgres bunu
+-- CREATE TRIGGER anında kontrol eder, tetiklenme anında değil. Sorun,
+-- fonksiyonun içinden yapılan mask_pii_in_text çağrısıydı.)
+--
+-- DEFINER yapmak, mask_pii_in_text'i istemciye RPC olarak açmadan sorunu
+-- çözer. search_path zaten 'public' olarak sabitlenmiş durumda.
+alter function public.detect_and_mask_pii() security definer;

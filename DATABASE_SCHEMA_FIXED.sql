@@ -158,7 +158,9 @@ CREATE TABLE session_rooms (
   initiator_message_count INT DEFAULT 0,
   accepted_message_count INT DEFAULT 0,
 
-  CONSTRAINT initiator_not_accepted CHECK (initiator_user_id != accepted_user_id),
+  CONSTRAINT initiator_not_accepted CHECK (
+    accepted_user_id IS NULL OR initiator_user_id != accepted_user_id
+  ),
   CONSTRAINT valid_duration CHECK (duration_minutes > 0 AND duration_minutes <= 120)
 );
 

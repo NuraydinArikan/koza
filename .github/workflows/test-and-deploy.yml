@@ -102,10 +102,12 @@ jobs:
             (digest('ci-user-2', 'sha256'), 'gentle_breeze', 'nature_spirit', '{"q":"b"}'::jsonb, array_fill(0.2, ARRAY[1536])::vector);
 
           -- Active session (expires_at is GENERATED - never insert it directly)
+          -- Use OFFSET to guarantee two distinct users regardless of sort order
           INSERT INTO session_rooms (initiator_user_id, accepted_user_id, room_type, duration_minutes)
-          SELECT u1.id, u2.id, 'blind_confessional', 60
-          FROM (SELECT id FROM users ORDER BY anon_hash ASC  LIMIT 1) u1,
-               (SELECT id FROM users ORDER BY anon_hash DESC LIMIT 1) u2;
+          SELECT
+            (SELECT id FROM users ORDER BY anon_hash LIMIT 1),
+            (SELECT id FROM users ORDER BY anon_hash LIMIT 1 OFFSET 1),
+            'blind_confessional', 60;
 
           -- Message encrypted with the trigger's symmetric key -> PII scan runs
           INSERT INTO session_messages (session_id, sender_user_id, content_encrypted, expires_at)
@@ -132,9 +134,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h localhost -U test_user -d koza_test <<'EOF'
           -- Expired session: backdate created_at, expires_at derives from it
           INSERT INTO session_rooms (initiator_user_id, accepted_user_id, room_type, duration_minutes, created_at)
-          SELECT u1.id, u2.id, 'blind_confessional', 1, now() - INTERVAL '10 minutes'
-          FROM (SELECT id FROM users ORDER BY anon_hash ASC  LIMIT 1) u1,
-               (SELECT id FROM users ORDER BY anon_hash DESC LIMIT 1) u2;
+          SELECT
+            (SELECT id FROM users ORDER BY anon_hash LIMIT 1),
+            (SELECT id FROM users ORDER BY anon_hash LIMIT 1 OFFSET 1),
+            'blind_confessional', 1, now() - INTERVAL '10 minutes';
 
           SELECT auto_purge_session();
 
